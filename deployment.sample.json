@@ -10,6 +10,7 @@
             "dhcp_end": "10.0.0.254",
             "forwarding": "nat",
             "device": "eth0"
+            "netdir": ""
         }
     ],
     "vms": [
