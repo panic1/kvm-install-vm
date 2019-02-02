@@ -986,7 +986,7 @@ function create_net ()
     network_exists && yellow "Network ${NETWORK} already exists, skipping." && return
 
     mkdir -p ${NETDIR}
-    NETWORK_CONF="${NETDIR}/network.xml"
+    NETWORK_CONF="${NETDIR}/${NETWORK}.xml"
 
     # create the network.xml file
     > ${NETWORK_CONF}
