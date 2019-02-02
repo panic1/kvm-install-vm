@@ -171,7 +171,7 @@ function usage_subcommand ()
             printf "\n"
             printf "FORWARDING MODES\n"
             printf "    nat\n"
-            printf "    routed\n"
+            printf "    route\n"
             printf "    isolated\n"
 #            printf "    PCI passthrough\n"
             printf "\n"
@@ -488,7 +488,7 @@ function check_delete_known_host ()
     grep -q ${IP} ${HOME}/.ssh/known_hosts \
         && outputn "Found entry for ${IP}. Removing" \
         && (sed --in-place "/^${IP}/d" ~/.ssh/known_hosts && ok ) \
-        || output "No entries found for ${IP}"
+        || output "No known-hosts entry found for ${IP}"
 }
 
 function __create_vm ()
@@ -554,7 +554,8 @@ _EOF_
 
     if [ ! -z "${SCRIPTNAME+x}" ]
     then
-        SCRIPT=$(< $SCRIPTNAME)
+        printf $(pwd)
+        SCRIPT=$(cat ${SCRIPTNAME})
         cat >> $USER_DATA << _EOF_
 
 --==BOUNDARY==
@@ -1039,7 +1040,7 @@ function net-create ()
     set_net_defaults
 
     # Parse command line options
-    while getopts ":b:n:s:e:M:A:m:f:d:ahv" opt
+    while getopts ":b:n:s:e:M:A:m:L:f:d:ahv" opt
     do
         case "$opt" in
             a ) AUTOSTART="${OPTARG}" ;;
@@ -1170,7 +1171,6 @@ function net_create_json ()
     else
         output "Deploying network ${NETWORK}"
     fi
-
 
     create_net
 }
