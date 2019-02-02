@@ -30,6 +30,7 @@ COMMANDS
     net-remove  - remove and undefine a network
     net-list    - list all networks
     deploy      - deploy virtual networks and machine from a configuration file input
+    undeploy    - undeploy all virtual machines and networks from a configuration file input
 
 EOF
 exit 0
@@ -214,6 +215,23 @@ function usage_subcommand ()
             printf "EXAMPLE\n"
             printf "    $prog deploy -f deployment.json\n"
             printf "        Deploys all virtual networks and machines defined in the configuration file.\n"
+            ;;
+        undeploy)
+            printf "NAME\n"
+            printf "    $prog undeploy\n"
+            printf "\n"
+            printf "DESCRIPTION\n"
+            printf "    Undeploy virtual networks and machine from a configuration file.\n"
+            printf "\n"
+            printf "COMMANDS\n"
+            printf "    help - show this help\n"
+            printf "\n"
+            printf "OPTIONS\n"
+            printf "    -f          filename (default deployment.json)\n"
+            printf "\n"
+            printf "EXAMPLE\n"
+            printf "    $prog undeploy -f deployment.json\n"
+            printf "        Undeploys all virtual networks and machines defined in the configuration file.\n"
             ;;
         *)
             printf "'$subcommand' is not a valid subcommand.\n"
@@ -1178,6 +1196,39 @@ function deploy ()
         vm_create_json "$(jq -r ".vms[$i]" ${DEPLOYFILE})"
     done
 }
+
+function undeploy ()
+{
+    # Set default values
+    DEPLOYFILE="deployment.json"
+
+    # Parse command line options
+    while getopts ":f:v" opt
+    do
+        case "$opt" in
+            f ) DEPLOYFILE="${OPTARG}" ;;
+            v ) VERBOSE=1 ;;
+            * ) die "Unsupported option. Run 'kvm-install-vm help deploy'." ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+
+    # Parse the json file
+    NETS=$(jq -r '.networks[] | .network' ${DEPLOYFILE})
+    VMS=$(jq -r '.vms[] | .vmname' ${DEPLOYFILE})
+
+    for VM in $VMS
+    do
+        remove $VM
+    done
+
+    for NET in $NETS
+    do
+        net-remove $NET
+    done
+}
+
 #--------------------------------------------------
 # Main
 #--------------------------------------------------
@@ -1192,7 +1243,7 @@ case "${subcommand}" in
     help)
         if [[ "${1:-none}" == "none" ]]; then
             usage
-        elif [[ "$1" =~ ^create$|^remove$|^list$|^attach-disk|^net-create|^net-remove|^net-list$ ]]; then
+        elif [[ "$1" =~ ^create$|^remove$|^list$|^attach-disk|^net-create|^net-remove|^net-list$|^deploy|^undeploy ]]; then
             usage_subcommand "$1"
         else
             printf "'$1' is not a valid subcommand.\n\n"
@@ -1207,7 +1258,7 @@ case "${subcommand}" in
         virsh net-list --all
         exit 0
         ;;
-    net-create|deploy)
+    net-create|deploy|undeploy)
         if [[ "$1" =~ ^help$ ]]; then
             usage_subcommand "${subcommand}"
         else
