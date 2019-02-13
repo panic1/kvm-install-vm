@@ -629,19 +629,32 @@ _EOF_
         --target ${VMDIR}/${VMNAME} &>> ${VMNAME}.log && ok) \
         || die "Could not create storage pool."
 
-    if [ -n "${NETWORK}" ]
+    # multiple networks possible
+    declare -a net_array=(${NETWORK})
+    declare -a br_array=(${BRIDGE})
+    declare -a mac_array=(${MACADDRESS})
+
+    if [ ${#net_array[@]} -ge 1 ]
     then
-        NETWORK_PARAMS="network=${NETWORK},model=virtio"
-        BRIDGE=$(virsh net-info ${NETWORK} | grep Bridge | cut -d ':' -f2 | tr -d '[:space:]')
+        NR_NET=${#net_array[@]}
+        NET="network"
+        # used later for IP address check, take the first network in the list
+        BRIDGE=$(virsh net-info ${net_array[0]} | grep Bridge | cut -d ':' -f2 | tr -d '[:space:]')
     else
-        NETWORK_PARAMS="bridge=${BRIDGE},model=virtio"
+        NR_NET=${#br_array[@]}
+        NET="bridge"
     fi
 
-    # Add custom MAC Address if specified
-    if [ -n "${MACADDRESS}" ]
-    then
-        NETWORK_PARAMS="${NETWORK_PARAMS},mac=${MACADDRESS}"
-    fi
+    for ((i=0; i<NR_NET; i++))
+    do
+        if [ -n "${mac_array[$i]}" ]
+        then
+            MAC_PARAM=",mac=${mac_array[$i]}"
+        else
+            MAC_PARAM=""
+        fi
+        NETWORK_PARAMS+="--network ${NET}=${net_array[$i]},model=virtio${MAC_PARAM} "
+    done
 
     if [ "${VERBOSE}" -eq 1 ]
     then
@@ -654,7 +667,7 @@ _EOF_
         printf "      --cpu ${FEATURE} \\ \n"
         printf "      --disk ${DISK},format=qcow2,bus=virtio \\ \n"
         printf "      --disk ${CI_ISO},device=cdrom \\ \n"
-        printf "      --network ${NETWORK_PARAMS} \\ \n"
+        printf "      ${NETWORK_PARAMS} \\ \n"
         printf "      --os-type=linux \\ \n"
         printf "      --os-variant=${OS_VARIANT} \\ \n"
         printf "      --graphics ${GRAPHICS},port=${PORT},listen=localhost \\ \n"
@@ -671,7 +684,7 @@ _EOF_
         --cpu ${FEATURE} \
         --disk ${DISK},format=qcow2,bus=virtio \
         --disk ${CI_ISO},device=cdrom \
-        --network ${NETWORK_PARAMS} \
+        ${NETWORK_PARAMS} \
         --os-type=linux \
         --os-variant=${OS_VARIANT} \
         --graphics ${GRAPHICS},port=${PORT},listen=localhost \
@@ -700,7 +713,7 @@ _EOF_
     if [ -f "/var/lib/libvirt/dnsmasq/${BRIDGE}.status" ]
     then
         outputn "Waiting for domain to get an IP address"
-        MAC=$(virsh dumpxml ${VMNAME} | awk -F\' '/mac address/ {print $2}')
+        MAC=$(virsh dumpxml ${VMNAME} | grep -B1 ${BRIDGE} | awk -F\' '/mac address/ {print $2}')
         while true
         do
             IP=$(grep -B1 $MAC /var/lib/libvirt/dnsmasq/$BRIDGE.status | head \
@@ -878,7 +891,7 @@ function create ()
     do
         case "$opt" in
             a ) AUTOSTART="${OPTARG}" ;;
-            b ) BRIDGE="${OPTARG}" ;;
+            b ) BRIDGE="${OPTARG} " ;; # can be repeated multiple times
             c ) CPUS="${OPTARG}" ;;
             d ) DISK_SIZE="${OPTARG}" ;;
             D ) DNSDOMAIN="${OPTARG}" ;;
@@ -889,8 +902,8 @@ function create ()
             l ) IMAGEDIR="${OPTARG}" ;;
             L ) VMDIR="${OPTARG}" ;;
             m ) MEMORY="${OPTARG}" ;;
-            M ) MACADDRESS="${OPTARG}" ;;
-            n ) NETWORK="${OPTARG}" ;;
+            M ) MACADDRESS="${OPTARG}" ;; # can be repeated multiple times
+            n ) NETWORK+="${OPTARG} " ;; # can be repeated multiple times
             p ) PORT="${OPTARG}" ;;
             s ) SCRIPTNAME="${OPTARG}" ;;
             t ) DISTRO="${OPTARG}" ;;
@@ -912,6 +925,23 @@ function create ()
         exit 1
     else
         VMNAME=$1
+    fi
+
+    # Make sure that when there are multiple networks or bridges defined, that the number of MAC addresses is the same or zero
+    NR_BRIDGE=$(echo "${BRIDGE}" | wc -w)
+    NR_NETWORK=$(echo "${NETWORK}" | wc -w)
+    NR_MACADDR=$(echo "${MACADDRESS}" | wc -w)
+    if [ "${NR_MACADDR}" -ne 0 ]
+    then
+        if [ "${NR_NETWORK}" -ge 1 -a "${NR_NETWORK}"-ne "${MACADDR}"]
+        then
+            printf "The number of networks and MAC addresses need to be the same when you want to specify a MAC address.\n"
+            exit 1
+        elif [ "{NR_BRIDGE}" -ge 1 -a "{NR_BRIDGE}" -ne "{MACADDR}" ]
+        then
+            printf "The number of bridges and MAC addresses need to be the same when you want to specify a MAC address.\n"
+            exit 1
+        fi
     fi
 
     create_vm
