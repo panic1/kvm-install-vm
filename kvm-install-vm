@@ -573,6 +573,20 @@ _EOF_
 
     { echo "instance-id: ${VMNAME}"; echo "local-hostname: ${VMNAME}"; } > $META_DATA
 
+    # enable DHCP for all network interfaces
+    cat > $NETWORK_CONFIG << _EOF_
+ethernets: 
+  all-en:
+    match:
+      name: "en*"
+    dhcp4: true
+  all-eth:
+    match:
+      name: "eth*"
+    dhcp4: true
+version: 2
+_EOF_
+
     outputn "Copying cloud image ($(basename ${IMAGE}))"
     DISK=${VMNAME}.qcow2
     cp $IMAGE $DISK && ok
@@ -602,11 +616,11 @@ _EOF_
     then
         genisoimage -output $CI_ISO \
             -volid cidata \
-            -joliet -r $USER_DATA $META_DATA &>> ${VMNAME}.log \
+            -joliet -r $USER_DATA $META_DATA $NETWORK_CONFIG &>> ${VMNAME}.log \
             && ok \
             || die "Could not generate ISO."
     else
-        mkisofs -o $CI_ISO -V cidata -J -r $USER_DATA $META_DATA &>> ${VMNAME}.log \
+        mkisofs -o $CI_ISO -V cidata -J -r $USER_DATA $META_DATA $NETWORK_CONFIG &>> ${VMNAME}.log \
             && ok \
             || die "Could not generate ISO."
     fi
@@ -644,16 +658,22 @@ _EOF_
         NR_NET=${#br_array[@]}
         NET="bridge"
     fi
+    
+    if [[ "${VERBOSE}" -eq 1 ]]
+    then
+        output "Found bridge for ${VMNAME}: ${BRIDGE}"
+    fi
 
-    for ((i=0; i<NR_NET; i++))
+    unset NETWORK_PARAMS
+    for ((j=0; j<NR_NET; j++))
     do
-        if [ -n "${mac_array[$i]}" ]
+        if [ -n "${mac_array[$j]}" ]
         then
-            MAC_PARAM=",mac=${mac_array[$i]}"
+            MAC_PARAM=",mac=${mac_array[$j]}"
         else
             MAC_PARAM=""
         fi
-        NETWORK_PARAMS+="--network ${NET}=${net_array[$i]},model=virtio${MAC_PARAM} "
+        NETWORK_PARAMS+="--network ${NET}=${net_array[$j]},model=virtio${MAC_PARAM} "
     done
 
     if [ "${VERBOSE}" -eq 1 ]
@@ -708,7 +728,7 @@ _EOF_
 
     # Remove the unnecessary cloud init files
     outputn "Cleaning up cloud-init files"
-    rm -f $USER_DATA $META_DATA $CI_ISO && ok
+    rm -f $USER_DATA $META_DATA $NETWORK_CONFIG $CI_ISO && ok
 
     if [ -f "/var/lib/libvirt/dnsmasq/${BRIDGE}.status" ]
     then
@@ -759,10 +779,10 @@ function create_vm ()
         DISK_SIZE="${DISK_SIZE}G"   # Append 'G' for Gigabyte
     fi
 
-
     # Set cloud-init variables after VMNAME is assigned
     USER_DATA=user-data
     META_DATA=meta-data
+    NETWORK_CONFIG=network-config
     CI_ISO=${VMNAME}-cidata.iso
 
     # Check for ssh key
@@ -1223,15 +1243,15 @@ function deploy ()
     shift $((OPTIND - 1))
 
     # Parse the json file
-    NR_NET=$(jq -r '.networks|length' ${DEPLOYFILE})
-    NR_VM=$(jq -r '.vms|length' ${DEPLOYFILE})
+    NR_NETWORKS=$(jq -r '.networks|length' ${DEPLOYFILE})
+    NR_VMACHINES=$(jq -r '.vms|length' ${DEPLOYFILE})
 
-    for ((i=0; i<NR_NET; i++))
+    for ((i=0; i<NR_NETWORKS; i++))
     do
         net_create_json "$(jq -r ".networks[$i]" ${DEPLOYFILE})"
     done
 
-    for ((i=0; i<NR_VM; i++))
+    for ((i=0; i<NR_VMACHINES; i++))
     do
         vm_create_json "$(jq -r ".vms[$i]" ${DEPLOYFILE})"
     done
@@ -1324,3 +1344,4 @@ case "${subcommand}" in
         die "'${subcommand}' is not a valid subcommand.  See 'kvm-install-vm help' for a list of subcommands."
         ;;
 esac
+
