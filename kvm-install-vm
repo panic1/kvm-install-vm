@@ -59,6 +59,7 @@ function usage_subcommand ()
             printf "    -g          Graphics type       (default: spice)\n"
             printf "    -h          Display help\n"
             printf "    -i          Custom QCOW2 Image\n"
+            printf "    -I          Ip address          (default: auto-assigned)\n"
             printf "    -k          SSH Public Key      (default: $HOME/.ssh/id_rsa.pub)\n"
             printf "    -l          Location of Images  (default: $HOME/virt/images)\n"
             printf "    -L          Location of VMs     (default: $HOME/virt/vms)\n"
@@ -647,6 +648,7 @@ _EOF_
     declare -a net_array=(${NETWORK})
     declare -a br_array=(${BRIDGE})
     declare -a mac_array=(${MACADDRESS})
+    declare -a ip_array=(${IPADDRESS})
 
     if [ ${#net_array[@]} -ge 1 ]
     then
@@ -667,13 +669,39 @@ _EOF_
     unset NETWORK_PARAMS
     for ((j=0; j<NR_NET; j++))
     do
-        if [ -n "${mac_array[$j]}" ]
+        NETNAME=${net_array[$j]}
+        MAC_ADDR=${mac_array[$j]}
+        IP_ADDR=${ip_array[$j]}
+        if [ -z "${MAC_ADDR}" ]
         then
-            MAC_PARAM=",mac=${mac_array[$j]}"
-        else
-            MAC_PARAM=""
+            # generate our own mac address
+            MAC_ADDR=$(dd if=/dev/urandom count=1 2>/dev/null | md5sum | sed 's/^\(..\)\(..\)\(..\)\(..\).*$/52:54:\1:\2:\3:\4/')
         fi
-        NETWORK_PARAMS+="--network ${NET}=${net_array[$j]},model=virtio${MAC_PARAM} "
+        if [ -n "${IP_ADDR}"  ]
+        then
+            if [ "${VERBOSE}" -eq 1 ]
+            then
+                output "Setting preconfigured DHCP address with following command:"
+                printf "    virsh net-update \\ \n"
+                printf "        --network ${NETNAME} \\ \n"
+                printf "        --command add-last \\ \n"
+                printf "        --section ip-dhcp-host \\ \n"
+                printf "        --xml \"<host mac=\'${MAC_ADDR}\' name:\'${NETNAME}_${VMNAME}\' ip=\'${IP_ADDR}\'>\" \\ \n"
+                printf "        --live \\ \n"
+                printf "        --config \n"
+            else
+                outputn "Setting preconfigured DHCP address"
+            fi
+            (virsh net-update \
+                --network ${NETNAME} \
+                --command add-last \
+                --section ip-dhcp-host \
+                --xml "<host mac='${MAC_ADDR}' name='${NETNAME}_${VMNAME}' ip='${IP_ADDR}'/>" \
+                --live \
+                --config &>> ${VMNAME}.log && ok) \
+                || die "Could not configure DHCP host."
+        fi
+        NETWORK_PARAMS+="--network ${NET}=${NETNAME},model=virtio,mac=${MAC_ADDR} "
     done
 
     if [ "${VERBOSE}" -eq 1 ]
@@ -875,6 +903,7 @@ function set_defaults ()
     PUBKEY=""                       # SSH public key
     DISTRO=centos7                  # Distribution
     MACADDRESS=""                   # MAC Address
+    IPADDRESS=""                    # IP address
     PORT=-1                         # Console port
     TIMEZONE=US/Eastern             # Timezone
     ADDITIONAL_USER=${USER}         # User
@@ -918,6 +947,7 @@ function create ()
             f ) FEATURE="${OPTARG}" ;;
             g ) GRAPHICS="${OPTARG}" ;;
             i ) IMAGE="${OPTARG}" ;;
+            I ) IPADDRESS="${OPTARG}" ;; # can be repeated multiple times
             k ) PUBKEY="${OPTARG}" ;;
             l ) IMAGEDIR="${OPTARG}" ;;
             L ) VMDIR="${OPTARG}" ;;
@@ -951,16 +981,33 @@ function create ()
     NR_BRIDGE=$(echo "${BRIDGE}" | wc -w)
     NR_NETWORK=$(echo "${NETWORK}" | wc -w)
     NR_MACADDR=$(echo "${MACADDRESS}" | wc -w)
+    MR_IPADDR=$(echo "${IPADDRESS}" | wc -w)
     if [ "${NR_MACADDR}" -ne 0 ]
     then
-        if [ "${NR_NETWORK}" -ge 1 -a "${NR_NETWORK}"-ne "${MACADDR}"]
+        if [ "${NR_NETWORK}" -ge 1 "${NR_NETWORK}" -ne "${NR_IPDDR}" ]
         then
-            printf "The number of networks and MAC addresses need to be the same when you want to specify a MAC address.\n"
-            exit 1
-        elif [ "{NR_BRIDGE}" -ge 1 -a "{NR_BRIDGE}" -ne "{MACADDR}" ]
+            if [ "${NR_NETWORK}" -ne "${NR_MACADDR}" ]
+            then
+                printf "The number of networks and MAC addresses need to be the same when you want to specify a MAC address.\n"
+                exit 1
+            fi
+            if [ "${NR_NETWORK}" -ne "${NR_IPDDR}" ]
+            then
+                printf "The number of networks and IP addresses need to be the same when you want to specify an IP address.\n"
+                exit 1
+            fi
+        elif [ "${NR_BRIDGE}" -ge 1 -a "${NR_BRIDGE}" ]
         then
-            printf "The number of bridges and MAC addresses need to be the same when you want to specify a MAC address.\n"
-            exit 1
+            if [ "${NR_BRIDGE}" -ne "${NR_MACADDR}" ]
+            then
+                printf "The number of bridges and MAC addresses need to be the same when you want to specify a MAC address.\n"
+                exit 1
+            fi
+            if [ "${NR_BRIDGE}" -ne "${NR_IPADDR}" ]
+            then
+                printf "The number of bridges and IP addresses need to be the same when you want to specify an IP address.\n"
+                exit 1
+            fi
         fi
     fi
 
@@ -1169,6 +1216,7 @@ function vm_create_json ()
             "vmdir")           VMDIR=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
             "memory")          MEMORY=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
             "macaddress")      MACADDRESS=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
+            "ipaddress")       IPADDRESS=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
             "network")         NETWORK=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
             "port")            PORT=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
             "scriptname")      SCRIPTNAME=$(echo ${JSONINPUT} | jq -r ".${key}") ;;
